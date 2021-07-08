@@ -29,7 +29,7 @@ def synonims(text):
         if len(tds) > 1:
             td2 = tds[1].a
             texts.append(td2.text.upper())
-			# upper сделал для совместимости формата с твоим другим сайтом где все приходит заглавным
+			
 
     return [texts]
 
