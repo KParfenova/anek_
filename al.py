@@ -1,10 +1,8 @@
-
 from flask import Flask, request
 import requests
 from bs4 import BeautifulSoup
-import requests
 import random
-import spacy
+# import spacy
 from xml.etree import ElementTree
 
 app = Flask(__name__)
@@ -23,15 +21,33 @@ def synonims(text):
     texts = []
 
     divtable = soup.find_all('div', {'class': 'outtable'})
+    if len(divtable) == 0:
+        return 0
     trs = divtable[0].find_all('tr')
+    
     for tr in trs:
         tds = tr.find_all('td')
         if len(tds) > 1:
             td2 = tds[1].a
             texts.append(td2.text.upper())
-			
+    
 
     return [texts]
+
+def read_tag():
+    tags = []
+    f = open("tags.txt", "r")
+    n = f.readline()
+    n = n[:len(n)-1]
+    url = ''
+
+    for i in range(0, int(n), 2):
+        t = f.readline()
+        t= t[:len(t)-1]
+        urla = f.readline()
+        urla = urla[:len(urla)-1]
+        tags.append([t, urla])
+    return tags
 
 def get_anekdot(url):
     # 3) get anekdots for this tag (url)
@@ -55,16 +71,14 @@ def get_anekdot(url):
                     #print(txt)
                     #print("------------")
 
-
+    if len(texts) == 0:
+        return 0
     # 4) get random anek
     r = random.randint(0, len(texts) - 1)
     return texts[r]
 
 
-@app.route('/', methods=['POST'])
-@app.route('/alice/', methods=['POST'])
-def respond():
-    data = request.json
+def make_response(data):
     tag = data.get('request', {}).get('command', '')
 
     end_session = False
@@ -72,59 +86,64 @@ def respond():
     if 'выход' in tag:
         response_text = 'Живите долго и процветайте'
         end_session = True
+    elif 'помощь' in tag:
+        response_text = 'Напишите тему анекдота, который вы хотите услышать. Например: политика'
+    elif 'что ты умеешь' in tag:
+        response_text = 'Я могу рассказывать анекдоты на разные темы. Например про Штирлица.'
+        
     elif tag:
         #ищем на сайте подобный тэг
         #{tag}
         # 1) read tag from input
         # 2) get URL by tag
-        response_text =''
-        tags = [
-         ['блондинка', "https://www.anekdot.ru/rss/tag/23.xml"],
-         ['зверь', "https://www.anekdot.ru/rss/tag/129.xml"],
-         ['президент', "https://www.anekdot.ru/rss/tag/8.xml"],
-         ['вовочка', "https://www.anekdot.ru/rss/tag/2.xml"],
-         ['кот', "https://www.anekdot.ru/rss/tag/55.xml"],
-         ['мужчина',"https://www.anekdot.ru/rss/tag/67.xml"],
-         ['о жизни',"https://www.anekdot.ru/rss/tag/38.xml"],
-         ['политика',"https://www.anekdot.ru/rss/tag/36.xml"],
-         ['программист',"https://www.anekdot.ru/rss/tag/26.xml"]
-        ]
-
+        
+        tags = read_tag()
         url = ''
-        for t in tags:
-            if t[0] in tag:
-                url = t[1]
-                break
-        if url == '':
-            # get synonims
-            syns = synonims(tag)
-            
 
-            # look for tag in synonims
-            for t in tags:
-                t_upper = t[0].upper()
+        # получаем синонимы для темы и ищем совпадение синонима с тегом
+        # get synonims
 
-                if url != '': break
-                for syn in syns:
-                    if url != '': break
-                    for g in syn:
-                        if t_upper == str(g):
-                            url = t[1]
-                            break
-
-        # ----------
         response_text = ''
 
+        rand_txt = ['Анекдота на вашу тему не найдено. Вот утешительная шутка: ',
+                   'Увы, я не могу найти анекдот на эту тему. Но могу рассказать другой: ',
+                   f'Анекдота на тему {tag} найти не удалось. Могу предложить такой: ',
+                   f'По теме {tag} анекдотов нет. Как насчет такого: ']
+
+        for t in tags:
+            if t[0] == tag.upper():
+                url = t[1]
+                break
+        # look for tag in synonims
+        if url == '':
+            syns = synonims(tag.upper())
+            if syns == 0:
+                url = "https://www.anekdot.ru/rss/tag/" + str(random.randint(1, 157))+ ".xml"
+                response_text += rand_txt[random.randint(0, len(rand_txt)-1)]
+            else:
+                for t in tags:
+                    t_upper = t[0]
+                    for syn in syns:
+                        if url != '': break
+                        for g in syn:
+                            if t_upper == str(g):
+                                url = t[1]
+                                break
+        
+
+        
+
+        # ----------
+        
         if url == '':
             url = "https://www.anekdot.ru/rss/tag/" + str(random.randint(1, 157))+ ".xml"
-            response_text += 'Анекдота на вашу тему не найдено. Вот утешительная шутка: '
+            response_text += rand_txt[random.randint(0, len(rand_txt)-1)]
 
         response_text += get_anekdot(url)
         
-        
        
     else:
-        response_text = 'Приветствую. Какой вам рассказать анекдот?'
+        response_text = 'Приветствую. Какой вам рассказать анекдот? \n Для помощи введите: Помощь \n Чтобы узнать о навыке: Что ты умеешь? \n Для выхода из навыка: Выход'
 
     response = {
         'response': {
@@ -136,4 +155,17 @@ def respond():
     return response
 
 
-app.run(host='0.0.0.0', port=5000, debug=True)
+
+@app.route('/', methods=['POST'])
+@app.route('/alice/', methods=['POST'])
+def respond():
+    data = request.json
+    return make_response(data)
+
+
+def handler(event, context):
+    return make_response(data=event)
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
